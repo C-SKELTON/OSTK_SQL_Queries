@@ -1,0 +1,45 @@
+select calc_carrier, case when shp_typ in ('LIGHTWT','SMLLPRCL') then 'SP' when shp_typ ='LTL' then 'LTL' else null end as ship_type, threepb_ind, curr_srvc_case_que_typ_desc, scr_crd_wk_end_dt, sum(npsscoresum)*1.00 as nps_score_sum, sum(npsscorecount) as nps_score_cnt        
+from        
+(select        
+   c.scr_crd_wk_end_dt,        
+    a17.src_srvc_case_ref_txt  src_srvc_case_ref_txt,        
+    a17.srvc_case_num_txt  srvc_case_num_txt,        
+    a11.srvy_invt_id  srvy_invt_id,        
+    a14.curr_srvc_case_orgn_typ_id  srvc_case_orgn_typ_id,        
+    Max(a14.curr_srvc_case_orgn_typ_desc)  srvc_case_orgn_typ_desc,        
+    a14.curr_srvc_case_que_typ_id  curr_srvc_case_que_typ_id,        
+    Max(a14.curr_srvc_case_que_typ_desc)  curr_srvc_case_que_typ_desc,        
+    a11.q1_rspns_num  q1_rspns_num,        
+    Max(CASE WHEN a11.q1_rspns_num IN (9,10) THEN 'Promoter' WHEN a11.q1_rspns_num IN (7,8) THEN 'Passive' WHEN a11.q1_rspns_num IN (0,1,2,3,4,5,6) THEN 'Detractor' ELSE NULL END)  CustCol_24,        
+    a14.curr_srvc_case_orgn_grp_desc  curr_srvc_case_orgn_grp_desc,        
+     CASE WHEN a11.q1_rspns_num IN (0,1,2,3,4,5,6,7,8,9,10) THEN 1 ELSE NULL END as NPSSCORECOUNT,        
+    CASE WHEN a11.q1_rspns_num IN (9,10) THEN 1 WHEN a11.q1_rspns_num IN (7,8) THEN 0 WHEN a11.q1_rspns_num IN (0,1,2,3,4,5,6) THEN -1 ELSE NULL end as NPSSCORESUM        
+,max(bp.carr_shpg_typ_cd) as shp_typ
+,max(bp.partner_3pb_ind) as threepb_ind
+,max(bp.calc_carr_grp_name) as calc_carrier
+,max(dp.sls_trans_id) as sls_trans_id
+FROM    EDW_ACCESS_VIEWS.BI_POST_INCDNT_SRVY    a11        
+    JOIN    EDW_ACCESS_VIEWS.SRVY_INVT    a13 ON     a11.srvy_invt_id = a13.srvy_invt_id        
+    JOIN    EDW_ACCESS_VIEWS.BI_CUST_SRVC_CASE    a14  ON     a13.srvy_invt_ref_num = a14.srvc_case_id        
+left join edw_access_views.SRVC_CASE_SLS_TRANS a on a.srvc_case_id = a14.srvc_case_id
+left join edw_access_views.bi_sls_flfl_dlvry_perf dp on dp.sls_trans_id = a.sls_trans_id
+left join edw_access_views.sls_trans_line_pkg stlp on stlp.sls_trans_line_id = dp.sls_trans_line_id
+left join bi_pkg bp on bp.pkg_id = stlp.pkg_id
+    join edw_access_views.ostk_cal c on c.cal_dt = a11.srvy_invt_sent_dt        
+        JOIN    (SEL         
+srvc_user_id        
+, emp_id        
+FROM EDW_ACCESS_VIEWS.SRVC_USER        
+QUALIFY Row_Number() Over (PARTITION BY srvc_user_id ORDER BY Coalesce(srvc_user_end_dttm, Current_Timestamp) DESC) = 1)    a15        
+      ON     (a14.srvy_sent_user_id = a15.Srvc_User_Id)        
+    LEFT OUTER JOIN    EDW_ACCESS_VIEWS.BI_EMP    a16        
+      ON     (a15.emp_id = a16.emp_id)        
+    JOIN    EDW_ACCESS_VIEWS.SRVC_CASE    a17        
+      ON     (a13.srvy_invt_ref_num = a17.srvc_case_id AND         
+    a14.srvc_case_id = a17.srvc_case_id)        
+    WHERE    a11.srvy_invt_sent_dt BETWEEN DATE '2021-01-01' AND current_date -1       
+GROUP BY    1,2,3,4,5,7,9,11,12,13)a        
+where curr_srvc_case_que_typ_desc in('Order and Account Info','Returns','Damaged in Transit Claims','Never Delivered Claims','Parts Request','LTL Tracking and Delivery','LTL Returns','Invalid Tracking','LTL Parts Request','Proactive Outbound (CS)','Specialized Return Requests')        
+/*and scr_crd_wk_end_dt in ('2021-07-11', '2021-07-18')        */    
+group by 1,2,3,4,5
+order by 1, 2 asc
