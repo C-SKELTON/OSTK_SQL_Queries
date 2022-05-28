@@ -1,0 +1,78 @@
+select                                 
+a.scr_crd_wk_end_dt                                
+,ship_type                                
+,sofs_ind                                
+,region 
+,state           
+,flfl_class
+,count(distinct trckg_num_txt) as pkgs                                
+,sum(sls_to_dlvry_busns_day_cnt) as c2d, count(case when sls_to_dlvry_busns_day_cnt is not null then sls_trans_line_id end) as c2d_lines                                
+,count(case when std_whs_flfl_busns_day_cnt = 0 then sls_trans_line_id end) as same_day, count(case when std_whs_flfl_busns_day_cnt  is not null then sls_trans_line_id end) as total_flfl_lines                                
+,sum(zone_num) as total_zone , count(distinct case when zone_num is not null then  trckg_num_txt end) as zone_pkgs                                
+,count(distinct case when zone_num = '8' then trckg_num_txt end) as zone_8                                
+,CASE WHEN dlvry_msg_est_dlvry_ind='Y' AND COALESCE(dlvry_msg_ltl_ind, 'N') = 'N'  THEN 'PARCEL'                                 
+             WHEN  dlvry_msg_est_dlvry_ind='Y' AND COALESCE(dlvry_msg_ltl_ind, 'N') = 'Y'  THEN 'LTL'                                 
+            else null END  LTL_PARCEL_DESC                                
+,count(case when dlvry_msg_est_dlvry_ind='Y' and trckg_actl_dlvry_ind ='y'  and trans_line_back_order_dt IS NULL then sls_trans_line_id end) as delivery_message_lines                                
+,count(distinct case when dlvry_msg_est_dlvry_ind='Y' and trckg_actl_dlvry_ind ='y'  and trans_line_back_order_dt IS NULL then trckg_num_txt end) as delivery_message_pkgs                                
+,COUNT(CASE WHEN dlvry_msg_est_dlvry_ind='Y' AND COALESCE(dlvry_msg_ltl_ind, 'N') = 'N' and trckg_actl_dlvry_ind ='y' and  trans_line_back_order_dt IS NULL AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) - calc_dlvr_by_dt= 0 THEN sls_trans_line_id                                
+                             WHEN dlvry_msg_est_dlvry_ind='Y' AND COALESCE(dlvry_msg_ltl_ind, 'N') = 'Y' and trckg_actl_dlvry_ind ='y' and trans_line_back_order_dt IS NULL AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) BETWEEN dlvry_msg_est_min_dlvry_dt AND calc_dlvr_by_dt THEN sls_trans_line_id END)  DELIVEREDASESTIMATED_lines                                
+,COUNT(CASE WHEN dlvry_msg_est_dlvry_ind='Y' AND COALESCE(dlvry_msg_ltl_ind, 'N') = 'N' and  trans_line_back_order_dt IS NULL AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) - calc_dlvr_by_dt < 0 THEN sls_trans_line_id                                 
+                        WHEN  dlvry_msg_est_dlvry_ind='Y' AND COALESCE(dlvry_msg_ltl_ind, 'N') = 'Y' and  trans_line_back_order_dt IS NULL AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt)  <dlvry_msg_est_min_dlvry_dt THEN sls_trans_line_id END)  DELIVEREDEARLIERTHANESTIMATED_lines                                
+,COUNT(CASE WHEN dlvry_msg_est_dlvry_ind = 'Y' and  trans_line_back_order_dt IS NULL AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) - calc_dlvr_by_dt > 0 THEN sls_trans_line_id END)  DELIVEREDLATERTHANESTIMATED_lines                                
+/*,DELIVEREDEARLIERTHANESTIMATED_lines + DELIVEREDASESTIMATED_lines as early_ontime_dm_lines    */                            
+,count(CASE WHEN wthr_dlay_ind  ='y' and dlvry_msg_est_dlvry_ind = 'Y' AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) - calc_dlvr_by_dt > 0 then sls_trans_line_id end) as wthr_delay                                                                        
+,count(CASE WHEN (dlvry_info_chng_dlay_ind ='y' or incrrct_dlvry_addr_dlay_ind ='y' )and dlvry_msg_est_dlvry_ind = 'Y' AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) - calc_dlvr_by_dt > 0 then sls_trans_line_id end) as  incrrct_dlvry_addr_or_dlvry_info_delay                             
+,count(CASE WHEN carr_perf_dlay_ind ='y' and dlvry_msg_est_dlvry_ind = 'Y' AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) - calc_dlvr_by_dt > 0 then sls_trans_line_id end) as carr_perf_delay                                
+,count(CASE WHEN flfl_dt > dlvry_msg_est_ship_dt and dlvry_msg_est_dlvry_ind = 'Y' AND COALESCE(CAST(first_dlvry_fail_atmpt_scan_dttm AS DATE),trckg_actl_dlvry_dt) - calc_dlvr_by_dt > 0 then sls_trans_line_id end) as later_flfl_dt                                
+from                                
+                                
+(select c.scr_crd_wk_end_dt                                
+,dp.trckg_num_txt                                
+,dp.sls_trans_line_id                                
+,Case when CARR_SHPG_TYP_CD in ('LIGHTWT', 'SMLLPRCL') then 'SP'                                
+when CARR_SHPG_TYP_CD = 'LTL'  then 'LTL' end as ship_type                                
+,case when w.src_whs_id not in ('1,081', '53,602', '76,103','3') Then 'Partner' else 'SOFS' end as sofs_ind                                
+,dp.sls_trans_web_orgn_id                                 
+,dp.trckg_actl_dlvry_ind                                 
+,sls_to_dlvry_busns_day_cnt                                
+,std_whs_flfl_busns_day_cnt                                
+,dp.dlvry_msg_est_dlvry_ind                                
+,dp.dlvry_msg_ltl_ind                                
+,dp.trans_line_back_order_dt                                 
+,dp.calc_dlvr_by_dt                                
+,first_dlvry_fail_atmpt_scan_dttm                                 
+,dlvry_msg_est_min_dlvry_dt                                
+,trckg_actl_dlvry_dt                                
+,Case when w.terr_cd in ('OR','WA','CA','NV','UT','CO','ID','WY','MT','AK','HI', 'CALIF') then 'West'                                
+when w.terr_cd in ('ND','SD','MN','NE','IA','IL','WI','MI','KS','MO','OH','IN') then 'Midwest'                                
+when w.terr_cd in('NM','AZ','TX','OK') then 'Southwest'                                
+when w.terr_cd in ('AR','LA','MS','AL','GA','SC','NC','TN','FL','KY','WV','VA') then 'Southeast'                                
+when w.terr_cd in('PA','MD','NY','NJ','DE','CT','MA','NH','VT','ME','RI','DC') then 'Northeast'                                
+when w.cntry_2_cd ='ca' or w.terr_cd in('QC','BC','ON') then 'Canada'                                
+else 'Other' end as region        
+,w.terr_cd as state
+,case when std_whs_flfl_busns_day_cnt = 0 then 1 else 0 end as same_day_flfl                                
+,case when fls.flfl_line_actl_ship_class_cd = 'GRND' and calc_zone_num in ('2','3','4','5','6','7','8') then calc_zone_num else null end as zone_num                                
+,dp.flfl_dt                                
+,dp.ship_by_dt                                
+,dp.wthr_dlay_ind                                                         
+,dp.dlvry_info_chng_dlay_ind                                 
+,dp.incrrct_dlvry_addr_dlay_ind                                
+,dp.carr_perf_dlay_ind                                
+,dp.dlvry_msg_est_ship_dt        
+,max(fls.flfl_line_actl_ship_class_cd) over (partition by dp.trckg_num_txt) as flfl_class
+ from edw_access_views.bi_sls_flfl_dlvry_perf dp                                 
+join edw_access_views.ostk_cal c on c.cal_dt = /*COALESCE(CAST(dp.first_dlvry_fail_atmpt_scan_dttm AS DATE),*/dp.trckg_actl_dlvry_dt/*)    */                            
+JOIN edw_access_views.bi_partner_loc_flfl flfl ON dp.flfl_whs_loc_id = flfl.loc_id                                
+JOIN edw_access_views.whs w ON flfl.whs_id = w.whs_id                                
+join edw_access_views.bi_flfl_line_ship fls on fls.sls_trans_line_id = dp.sls_trans_line_id                                
+where  cal_dt between '2021-01-01' and current_date -1                          
+/*and scr_crd_wk_end_dt ='2021-10-10'         */    
+/*and region ='Canada'*/
+/*and sofs_ind ='SOFS'           */                
+/*group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27*/
+)a                                
+where sls_trans_web_orgn_id not in ('120','121','131','77')                                
+/*and scr_crd_wk_end_dt ='2021-07-11'               */                 
+group by 1,2,3,4,5,6,15
